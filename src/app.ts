@@ -324,7 +324,8 @@ function toggleCurrentOperandSign(state: CalculatorState): CalculatorState {
 
 function applyPercent(state: CalculatorState): CalculatorState {
   const expression = state.expression || state.display;
-  if (expression === "" || isExpressionBoundary(lastChar(expression))) return state;
+  const finalChar = lastChar(expression);
+  if (expression === "" || isOperator(finalChar) || finalChar === "(") return state;
 
   const operandStart = findCurrentOperandStart(expression);
   const currentOperand = expression.slice(operandStart);
