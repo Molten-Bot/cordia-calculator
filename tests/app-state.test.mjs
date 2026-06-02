@@ -3,66 +3,68 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  addItem,
-  clearDoneItems,
   createDefaultState,
-  parseStoredState,
-  removeItem,
-  updateItem,
+  evaluateExpression,
+  parseStoredHistory,
+  pressCalculatorKey,
 } from "../public/app.js";
 
-test("createDefaultState uses supplied id factory", () => {
-  let nextId = 1;
-  const state = createDefaultState(() => `item-${nextId++}`);
-
-  assert.deepEqual(
-    state.items.map((item) => item.id),
-    ["item-1", "item-2", "item-3"],
-  );
+test("evaluateExpression handles operator precedence and parentheses", () => {
+  assert.equal(evaluateExpression("2+3*4"), "14");
+  assert.equal(evaluateExpression("(2+3)*4"), "20");
 });
 
-test("parseStoredState merges valid stored values with defaults", () => {
-  const defaultState = createDefaultState(() => "default-id");
-  const stored = JSON.stringify({
-    appName: "Typed Cordia",
-    theme: "dark",
-    items: [{ id: "stored-id", text: "Stored item", done: true }],
-  });
-
-  assert.deepEqual(parseStoredState(stored, defaultState), {
-    appName: "Typed Cordia",
-    theme: "dark",
-    items: [{ id: "stored-id", text: "Stored item", done: true }],
-  });
+test("evaluateExpression handles powers, percent, and unary minus", () => {
+  assert.equal(evaluateExpression("2^3"), "8");
+  assert.equal(evaluateExpression("-2^2"), "-4");
+  assert.equal(evaluateExpression("(-2)^2"), "4");
+  assert.equal(evaluateExpression("2^-2"), "0.25");
+  assert.equal(evaluateExpression("50%"), "0.5");
+  assert.equal(evaluateExpression("-4+10"), "6");
 });
 
-test("parseStoredState falls back when stored JSON is invalid", () => {
-  const defaultState = createDefaultState(() => "default-id");
-
-  assert.equal(parseStoredState("{", defaultState), defaultState);
+test("evaluateExpression handles roots, logs, trig, and constants", () => {
+  assert.equal(evaluateExpression("sqrt(81)+log(100)"), "11");
+  assert.equal(evaluateExpression("sin(pi/2)"), "1");
+  assert.equal(evaluateExpression("ln(e)"), "1");
 });
 
-test("item reducers add, update, remove, and clear items immutably", () => {
-  const state = {
-    appName: "Cordia",
-    theme: "system",
-    items: [
-      { id: "one", text: "One", done: false },
-      { id: "two", text: "Two", done: true },
-    ],
-  };
+test("evaluateExpression supports calculator-style shorthand", () => {
+  assert.equal(evaluateExpression("sqrt(81"), "9");
+  assert.equal(evaluateExpression("2π"), "6.28318530718");
+  assert.equal(evaluateExpression("2(3+4)"), "14");
+});
 
-  const added = addItem(state, "Three", () => "three");
-  const updated = updateItem(added, "one", { done: true });
-  const removed = removeItem(updated, "two");
-  const cleared = clearDoneItems(removed);
+test("pressCalculatorKey builds expressions and stores bounded history", () => {
+  let state = createDefaultState();
+  for (const key of ["1", "2", "+", "7", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
 
-  assert.deepEqual(added.items[0], { id: "three", text: "Three", done: false });
-  assert.equal(state.items[0].done, false);
-  assert.deepEqual(
-    cleared.items,
-    [{ id: "three", text: "Three", done: false }],
-  );
+  assert.equal(state.display, "19");
+  assert.deepEqual(state.history, ["12+7 = 19"]);
+
+  state = pressCalculatorKey(state, "*");
+  state = pressCalculatorKey(state, "2");
+  state = pressCalculatorKey(state, "equals");
+
+  assert.equal(state.display, "38");
+  assert.deepEqual(state.history.slice(0, 2), ["19*2 = 38", "12+7 = 19"]);
+});
+
+test("pressCalculatorKey squares an evaluated result", () => {
+  let state = createDefaultState();
+  for (const key of ["3", "+", "2", "equals", "square", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+
+  assert.equal(state.display, "25");
+  assert.deepEqual(state.history.slice(0, 2), ["5^2 = 25", "3+2 = 5"]);
+});
+
+test("parseStoredHistory returns only string history entries", () => {
+  assert.deepEqual(parseStoredHistory(JSON.stringify(["1+1 = 2", 42, null])), ["1+1 = 2"]);
+  assert.deepEqual(parseStoredHistory("{"), []);
 });
 
 test("served files do not reference disallowed providers or tooling", async () => {
