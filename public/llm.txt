@@ -1,6 +1,6 @@
-# Cordia App Template
+# Calculator
 
-Cordia App Template is a static browser-only web application template ready for static hosting.
+Calculator is a browser-only app for everyday arithmetic, percentages, powers, roots, logarithms, trig functions, and constants.
 
 Creator: cordia.molten.bot
 Creator URL: https://cordia.molten.bot
@@ -12,4 +12,4 @@ Primary files:
 - /global.css
 - /app.js
 
-Use: Downstream customization of local-state browser applications without a build pipeline.
+Use: Run calculations locally in the browser.

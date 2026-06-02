@@ -1,67 +1,35 @@
 // Google Analytics default capture for this template.
 // Future LLM edits: do not remove this gtag setup unless replacing it with equivalent page analytics capture.
 const googleAnalyticsId = "G-ZKTPLMMFDQ";
-const storageKey = "cordia-template-state";
-function createItem(text, done, idFactory) {
-    return { id: idFactory(), text, done };
-}
-export function createDefaultState(idFactory = () => crypto.randomUUID()) {
+const storageKey = "calculator-history";
+const operatorLabels = new Map([
+    ["+", "+"],
+    ["-", "-"],
+    ["*", "x"],
+    ["/", "/"],
+    ["^", "^"],
+]);
+export function createDefaultState() {
     return {
-        appName: "Cordia",
-        theme: "system",
-        items: [
-            createItem("Replace starter content", false, idFactory),
-            createItem("Add app-specific data model", false, idFactory),
-            createItem("Publish public folder to your hosting provider", true, idFactory),
-        ],
+        expression: "",
+        display: "0",
+        history: [],
+        justEvaluated: false,
+        error: null,
     };
 }
-function isTheme(value) {
-    return value === "system" || value === "light" || value === "dark";
-}
-function isItem(value) {
-    if (!value || typeof value !== "object")
-        return false;
-    const item = value;
-    return (typeof item.id === "string" &&
-        typeof item.text === "string" &&
-        typeof item.done === "boolean");
-}
-export function parseStoredState(storedState, defaultState) {
-    if (!storedState)
-        return defaultState;
+export function parseStoredHistory(storedHistory) {
+    if (!storedHistory)
+        return [];
     try {
-        const parsed = JSON.parse(storedState);
-        return {
-            appName: typeof parsed.appName === "string" ? parsed.appName : defaultState.appName,
-            theme: isTheme(parsed.theme) ? parsed.theme : defaultState.theme,
-            items: Array.isArray(parsed.items) && parsed.items.every(isItem) ? parsed.items : defaultState.items,
-        };
+        const parsed = JSON.parse(storedHistory);
+        if (!Array.isArray(parsed))
+            return [];
+        return parsed.filter((item) => typeof item === "string").slice(0, 8);
     }
     catch {
-        return defaultState;
+        return [];
     }
-}
-export function updateItem(state, id, patch) {
-    return {
-        ...state,
-        items: state.items.map((item) => (item.id === id ? { ...item, ...patch } : item)),
-    };
-}
-export function removeItem(state, id) {
-    return {
-        ...state,
-        items: state.items.filter((item) => item.id !== id),
-    };
-}
-export function addItem(state, text, idFactory = () => crypto.randomUUID()) {
-    return {
-        ...state,
-        items: [createItem(text, false, idFactory), ...state.items],
-    };
-}
-export function clearDoneItems(state) {
-    return { ...state, items: state.items.filter((item) => !item.done) };
 }
 function initializeGoogleAnalytics() {
     const googleTagScript = document.createElement("script");
@@ -84,117 +52,430 @@ function getElement(selector, type) {
 }
 function getElements() {
     return {
-        appNameInput: getElement("#app-name", HTMLInputElement),
-        clearItemsButton: getElement("#clear-items", HTMLButtonElement),
-        itemCount: getElement("#item-count", HTMLElement),
-        itemForm: getElement("#item-form", HTMLFormElement),
-        itemInput: getElement("#item-input", HTMLInputElement),
-        itemList: getElement("#item-list", HTMLUListElement),
-        navLinks: document.querySelectorAll(".nav a"),
-        saveState: getElement("#save-state", HTMLElement),
-        themeSelect: getElement("#theme-select", HTMLSelectElement),
-        title: getElement(".topbar h1", HTMLHeadingElement),
+        display: getElement("#calculator-display", HTMLInputElement),
+        expressionPreview: getElement("#expression-preview", HTMLElement),
+        historyList: getElement("#history-list", HTMLUListElement),
+        keypad: getElement("#calculator-keypad", HTMLElement),
+        clearHistory: getElement("#clear-history", HTMLButtonElement),
     };
+}
+function isDigit(value) {
+    return /^\d$/.test(value);
+}
+function isOperator(value) {
+    return value === "+" || value === "-" || value === "*" || value === "/" || value === "^";
+}
+function isFunction(value) {
+    return ["sqrt", "sin", "cos", "tan", "log", "ln"].includes(value);
+}
+function lastChar(expression) {
+    return expression.at(-1) ?? "";
+}
+function normalizeExpression(expression) {
+    return expression.replaceAll("×", "*").replaceAll("÷", "/").replaceAll("−", "-").trim();
+}
+function formatNumber(value) {
+    if (!Number.isFinite(value)) {
+        throw new Error("Result is not finite");
+    }
+    if (Object.is(value, -0))
+        return "0";
+    const rounded = Math.abs(value) < 1e-12 ? 0 : value;
+    return Number.parseFloat(rounded.toPrecision(12)).toString();
+}
+function tokenize(expression) {
+    const normalized = normalizeExpression(expression);
+    const tokens = [];
+    let index = 0;
+    while (index < normalized.length) {
+        const char = normalized[index];
+        if (char === undefined)
+            break;
+        if (/\s/.test(char)) {
+            index += 1;
+            continue;
+        }
+        if (/\d|\./.test(char)) {
+            let number = "";
+            let dots = 0;
+            while (index < normalized.length && /[\d.]/.test(normalized[index] ?? "")) {
+                const next = normalized[index] ?? "";
+                if (next === ".")
+                    dots += 1;
+                if (dots > 1)
+                    throw new Error("Invalid number");
+                number += next;
+                index += 1;
+            }
+            if (number === ".")
+                throw new Error("Invalid number");
+            tokens.push({ type: "number", value: number });
+            continue;
+        }
+        if (/[a-zπ]/i.test(char)) {
+            let identifier = "";
+            while (index < normalized.length && /[a-zπ]/i.test(normalized[index] ?? "")) {
+                identifier += normalized[index] ?? "";
+                index += 1;
+            }
+            const lowered = identifier.toLowerCase();
+            if (lowered === "pi" || lowered === "π") {
+                tokens.push({ type: "number", value: String(Math.PI) });
+            }
+            else if (lowered === "e") {
+                tokens.push({ type: "number", value: String(Math.E) });
+            }
+            else if (isFunction(lowered)) {
+                tokens.push({ type: "function", value: lowered });
+            }
+            else {
+                throw new Error(`Unknown token: ${identifier}`);
+            }
+            continue;
+        }
+        if (isOperator(char)) {
+            tokens.push({ type: "operator", value: char });
+            index += 1;
+            continue;
+        }
+        if (char === "%") {
+            tokens.push({ type: "operator", value: "%" });
+            index += 1;
+            continue;
+        }
+        if (char === "(") {
+            tokens.push({ type: "leftParen", value: char });
+            index += 1;
+            continue;
+        }
+        if (char === ")") {
+            tokens.push({ type: "rightParen", value: char });
+            index += 1;
+            continue;
+        }
+        throw new Error(`Unknown token: ${char}`);
+    }
+    return tokens;
+}
+function insertImplicitMultiplication(tokens) {
+    const output = [];
+    tokens.forEach((token) => {
+        const previous = output.at(-1);
+        const previousCanMultiply = previous?.type === "number" || previous?.type === "rightParen" || previous?.value === "%";
+        const nextCanMultiply = token.type === "number" || token.type === "function" || token.type === "leftParen";
+        if (previousCanMultiply && nextCanMultiply) {
+            output.push({ type: "operator", value: "*" });
+        }
+        output.push(token);
+    });
+    return output;
+}
+function closeOpenParentheses(expression) {
+    const leftCount = [...expression].filter((char) => char === "(").length;
+    const rightCount = [...expression].filter((char) => char === ")").length;
+    return expression + ")".repeat(Math.max(0, leftCount - rightCount));
+}
+function precedence(operator) {
+    if (operator === "neg")
+        return 5;
+    if (operator === "%")
+        return 4;
+    if (operator === "^")
+        return 3;
+    if (operator === "*" || operator === "/")
+        return 2;
+    if (operator === "+" || operator === "-")
+        return 1;
+    return 0;
+}
+function isRightAssociative(operator) {
+    return operator === "^" || operator === "neg";
+}
+function toReversePolish(tokens) {
+    const output = [];
+    const operators = [];
+    let previous;
+    for (const token of tokens) {
+        if (token.type === "number") {
+            output.push(token);
+            previous = token;
+            continue;
+        }
+        if (token.type === "function") {
+            operators.push(token);
+            previous = token;
+            continue;
+        }
+        if (token.type === "leftParen") {
+            operators.push(token);
+            previous = token;
+            continue;
+        }
+        if (token.type === "rightParen") {
+            while (operators.length > 0 && operators.at(-1)?.type !== "leftParen") {
+                const popped = operators.pop();
+                if (popped)
+                    output.push(popped);
+            }
+            if (operators.pop()?.type !== "leftParen")
+                throw new Error("Mismatched parentheses");
+            if (operators.at(-1)?.type === "function") {
+                const fn = operators.pop();
+                if (fn)
+                    output.push(fn);
+            }
+            previous = token;
+            continue;
+        }
+        const unaryMinus = token.value === "-" &&
+            (!previous || previous.type === "operator" || previous.type === "leftParen" || previous.type === "function");
+        const current = { ...token, value: unaryMinus ? "neg" : token.value };
+        while (operators.length > 0) {
+            const top = operators.at(-1);
+            if (!top || top.type === "leftParen")
+                break;
+            if (top.type === "function" ||
+                precedence(top.value) > precedence(current.value) ||
+                (precedence(top.value) === precedence(current.value) && !isRightAssociative(current.value))) {
+                const popped = operators.pop();
+                if (popped)
+                    output.push(popped);
+            }
+            else {
+                break;
+            }
+        }
+        operators.push(current);
+        previous = current;
+    }
+    while (operators.length > 0) {
+        const operator = operators.pop();
+        if (!operator || operator.type === "leftParen" || operator.type === "rightParen") {
+            throw new Error("Mismatched parentheses");
+        }
+        output.push(operator);
+    }
+    return output;
+}
+function evaluateFunction(name, input) {
+    if (name === "sqrt")
+        return Math.sqrt(input);
+    if (name === "sin")
+        return Math.sin(input);
+    if (name === "cos")
+        return Math.cos(input);
+    if (name === "tan")
+        return Math.tan(input);
+    if (name === "log")
+        return Math.log10(input);
+    if (name === "ln")
+        return Math.log(input);
+    throw new Error(`Unknown function: ${name}`);
+}
+function evaluateRpn(tokens) {
+    const stack = [];
+    for (const token of tokens) {
+        if (token.type === "number") {
+            stack.push(Number(token.value));
+            continue;
+        }
+        if (token.type === "function") {
+            const input = stack.pop();
+            if (input === undefined)
+                throw new Error("Missing function input");
+            stack.push(evaluateFunction(token.value, input));
+            continue;
+        }
+        if (token.value === "neg") {
+            const input = stack.pop();
+            if (input === undefined)
+                throw new Error("Missing value");
+            stack.push(-input);
+            continue;
+        }
+        if (token.value === "%") {
+            const input = stack.pop();
+            if (input === undefined)
+                throw new Error("Missing value");
+            stack.push(input / 100);
+            continue;
+        }
+        const right = stack.pop();
+        const left = stack.pop();
+        if (left === undefined || right === undefined)
+            throw new Error("Missing operand");
+        if (token.value === "+")
+            stack.push(left + right);
+        if (token.value === "-")
+            stack.push(left - right);
+        if (token.value === "*")
+            stack.push(left * right);
+        if (token.value === "/")
+            stack.push(left / right);
+        if (token.value === "^")
+            stack.push(left ** right);
+    }
+    if (stack.length !== 1 || stack[0] === undefined)
+        throw new Error("Invalid expression");
+    return stack[0];
+}
+export function evaluateExpression(expression) {
+    const tokens = insertImplicitMultiplication(tokenize(closeOpenParentheses(expression)));
+    if (tokens.length === 0)
+        return "0";
+    return formatNumber(evaluateRpn(toReversePolish(tokens)));
+}
+function appendToken(state, token) {
+    const currentExpression = state.justEvaluated && !isOperator(token) ? "" : state.expression;
+    const expression = currentExpression + token;
+    return {
+        ...state,
+        expression,
+        display: expression,
+        justEvaluated: false,
+        error: null,
+    };
+}
+export function pressCalculatorKey(state, key) {
+    if (key === "clear")
+        return { ...state, expression: "", display: "0", justEvaluated: false, error: null };
+    if (key === "backspace") {
+        const expression = state.expression.slice(0, -1);
+        return {
+            ...state,
+            expression,
+            display: expression || "0",
+            justEvaluated: false,
+            error: null,
+        };
+    }
+    if (key === "equals") {
+        try {
+            const result = evaluateExpression(state.expression || state.display);
+            const historyEntry = `${state.expression || state.display} = ${result}`;
+            return {
+                expression: result,
+                display: result,
+                history: [historyEntry, ...state.history].slice(0, 8),
+                justEvaluated: true,
+                error: null,
+            };
+        }
+        catch (error) {
+            return {
+                ...state,
+                display: "Error",
+                justEvaluated: false,
+                error: error instanceof Error ? error.message : "Invalid expression",
+            };
+        }
+    }
+    if (key === "sign") {
+        const base = state.expression || state.display;
+        const expression = base.startsWith("-") ? base.slice(1) : `-${base}`;
+        return { ...state, expression, display: expression, justEvaluated: false, error: null };
+    }
+    if (key === "square")
+        return appendToken(state, "^2");
+    if (key === "sqrt")
+        return appendToken(state, "sqrt(");
+    if (key === "pi")
+        return appendToken(state, "π");
+    if (key === "answer")
+        return appendToken(state, state.history[0]?.split(" = ")[1] ?? "0");
+    if (isDigit(key) || [".", "+", "-", "*", "/", "^", "%", "(", ")"].includes(key)) {
+        if (isOperator(key) && isOperator(lastChar(state.expression))) {
+            const expression = state.expression.slice(0, -1) + key;
+            return { ...state, expression, display: expression, justEvaluated: false, error: null };
+        }
+        return appendToken(state, key);
+    }
+    if (isFunction(key))
+        return appendToken(state, `${key}(`);
+    return state;
+}
+function render(state, elements, useHistoryResult) {
+    elements.display.value = state.display;
+    elements.display.setAttribute("aria-invalid", String(state.error !== null));
+    elements.expressionPreview.textContent = state.error ?? (state.expression || "Ready");
+    elements.historyList.replaceChildren();
+    if (state.history.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "empty-history";
+        empty.textContent = "No history";
+        elements.historyList.append(empty);
+        return;
+    }
+    state.history.forEach((entry) => {
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = entry;
+        button.addEventListener("click", () => {
+            const result = entry.split(" = ")[1] ?? "0";
+            useHistoryResult?.(result);
+        });
+        item.append(button);
+        elements.historyList.append(item);
+    });
 }
 function initializeApp() {
     initializeGoogleAnalytics();
-    const defaultState = createDefaultState();
     const elements = getElements();
-    let state = parseStoredState(localStorage.getItem(storageKey), defaultState);
-    let saveTimer;
-    function saveState() {
-        localStorage.setItem(storageKey, JSON.stringify(state));
-        elements.saveState.textContent = "Saved locally";
-        window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => {
-            elements.saveState.textContent = "Changes autosave";
-        }, 1600);
+    let state = { ...createDefaultState(), history: parseStoredHistory(localStorage.getItem(storageKey)) };
+    function saveHistory() {
+        localStorage.setItem(storageKey, JSON.stringify(state.history));
     }
-    function applyTheme() {
-        document.documentElement.dataset.theme = state.theme;
-    }
-    function renderItems() {
-        elements.itemList.replaceChildren();
-        if (state.items.length === 0) {
-            const emptyState = document.createElement("p");
-            emptyState.className = "empty-state";
-            emptyState.textContent = "No items yet. Add one to start shaping this template.";
-            elements.itemList.append(emptyState);
+    elements.keypad.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement))
             return;
+        const key = target.dataset.key;
+        if (!key)
+            return;
+        state = pressCalculatorKey(state, key);
+        saveHistory();
+        render(state, elements, useHistoryResult);
+    });
+    document.addEventListener("keydown", (event) => {
+        const keyMap = new Map([
+            ["Enter", "equals"],
+            ["=", "equals"],
+            ["Escape", "clear"],
+            ["Backspace", "backspace"],
+            ["x", "*"],
+            ["X", "*"],
+        ]);
+        const key = keyMap.get(event.key) ?? event.key;
+        if (isDigit(key) || [".", "+", "-", "*", "/", "^", "%", "(", ")"].includes(key) || keyMap.has(event.key)) {
+            event.preventDefault();
+            state = pressCalculatorKey(state, key);
+            saveHistory();
+            render(state, elements, useHistoryResult);
         }
-        state.items.forEach((item) => {
-            const row = document.createElement("li");
-            row.className = "item-row";
-            row.dataset.done = String(item.done);
-            const checkbox = document.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.checked = item.done;
-            checkbox.ariaLabel = `Mark ${item.text} complete`;
-            checkbox.addEventListener("change", () => {
-                state = updateItem(state, item.id, { done: checkbox.checked });
-                saveState();
-                render();
-            });
-            const label = document.createElement("span");
-            label.textContent = item.text;
-            const removeButton = document.createElement("button");
-            removeButton.className = "icon-button";
-            removeButton.type = "button";
-            removeButton.ariaLabel = `Remove ${item.text}`;
-            removeButton.textContent = "x";
-            removeButton.addEventListener("click", () => {
-                state = removeItem(state, item.id);
-                saveState();
-                render();
-            });
-            row.append(checkbox, label, removeButton);
-            elements.itemList.append(row);
-        });
+    });
+    elements.clearHistory.addEventListener("click", () => {
+        state = { ...state, history: [] };
+        saveHistory();
+        render(state, elements, useHistoryResult);
+    });
+    document.querySelectorAll("[data-key]").forEach((button) => {
+        const key = button.dataset.key;
+        if (key && operatorLabels.has(key)) {
+            button.textContent = operatorLabels.get(key) ?? key;
+        }
+    });
+    function useHistoryResult(result) {
+        state = {
+            ...state,
+            expression: result,
+            display: result,
+            justEvaluated: true,
+            error: null,
+        };
+        render(state, elements, useHistoryResult);
     }
-    function render() {
-        document.title = `${state.appName} App Template`;
-        elements.title.textContent = state.appName;
-        elements.appNameInput.value = state.appName;
-        elements.themeSelect.value = state.theme;
-        elements.itemCount.textContent = String(state.items.length);
-        applyTheme();
-        renderItems();
-    }
-    function updateCurrentNavLink() {
-        const currentHash = window.location.hash || "#overview";
-        elements.navLinks.forEach((link) => {
-            link.setAttribute("aria-current", link.getAttribute("href") === currentHash ? "page" : "false");
-        });
-    }
-    elements.itemForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const text = elements.itemInput.value.trim();
-        if (!text)
-            return;
-        state = addItem(state, text);
-        saveState();
-        render();
-        elements.itemInput.value = "";
-        elements.itemInput.focus();
-    });
-    elements.clearItemsButton.addEventListener("click", () => {
-        state = clearDoneItems(state);
-        saveState();
-        render();
-    });
-    elements.appNameInput.addEventListener("input", () => {
-        state = { ...state, appName: elements.appNameInput.value.trim() || "Cordia" };
-        saveState();
-        render();
-    });
-    elements.themeSelect.addEventListener("change", () => {
-        state = { ...state, theme: elements.themeSelect.value };
-        saveState();
-        render();
-    });
-    window.addEventListener("hashchange", updateCurrentNavLink);
-    render();
-    updateCurrentNavLink();
+    render(state, elements, useHistoryResult);
 }
 if (typeof document !== "undefined") {
     initializeApp();

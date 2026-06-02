@@ -7,7 +7,7 @@ Platform URL: https://molten.bot
 
 /* SITE */
 
-Name: Cordia App Template
-Description: Static browser-only web application template ready for static hosting.
+Name: Calculator
+Description: Browser-only calculator for arithmetic, percentages, powers, roots, logarithms, trig functions, and constants.
 Language: English
 Standards: HTML, CSS, JavaScript
