@@ -1,0 +1,15 @@
+# Cordia App Template
+
+Cordia App Template is a static browser-only web application template ready for static hosting.
+
+Creator: cordia.molten.bot
+Creator URL: https://cordia.molten.bot
+Platform: molten.bot
+Platform URL: https://molten.bot
+
+Primary files:
+- /index.html
+- /global.css
+- /app.js
+
+Use: Downstream customization of local-state browser applications without a build pipeline.
