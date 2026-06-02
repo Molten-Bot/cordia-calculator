@@ -233,9 +233,9 @@ function closeOpenParentheses(expression: string): string {
 }
 
 function precedence(operator: string): number {
-  if (operator === "neg") return 5;
   if (operator === "%") return 4;
   if (operator === "^") return 3;
+  if (operator === "neg") return 2.5;
   if (operator === "*" || operator === "/") return 2;
   if (operator === "+" || operator === "-") return 1;
   return 0;
@@ -288,7 +288,7 @@ function toReversePolish(tokens: Token[]): Token[] {
       (!previous || previous.type === "operator" || previous.type === "leftParen" || previous.type === "function");
     const current: Token = { ...token, value: unaryMinus ? "neg" : token.value };
 
-    while (operators.length > 0) {
+    while (current.value !== "neg" && operators.length > 0) {
       const top = operators.at(-1);
       if (!top || top.type === "leftParen") break;
       if (
@@ -380,7 +380,8 @@ export function evaluateExpression(expression: string): string {
 }
 
 function appendToken(state: CalculatorState, token: string): CalculatorState {
-  const currentExpression = state.justEvaluated && !isOperator(token) ? "" : state.expression;
+  const continuesEvaluatedResult = isOperator(token) || token === "^2" || token === "%";
+  const currentExpression = state.justEvaluated && !continuesEvaluatedResult ? "" : state.expression;
   const expression = currentExpression + token;
   return {
     ...state,

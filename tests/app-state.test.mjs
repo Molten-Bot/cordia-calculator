@@ -16,6 +16,9 @@ test("evaluateExpression handles operator precedence and parentheses", () => {
 
 test("evaluateExpression handles powers, percent, and unary minus", () => {
   assert.equal(evaluateExpression("2^3"), "8");
+  assert.equal(evaluateExpression("-2^2"), "-4");
+  assert.equal(evaluateExpression("(-2)^2"), "4");
+  assert.equal(evaluateExpression("2^-2"), "0.25");
   assert.equal(evaluateExpression("50%"), "0.5");
   assert.equal(evaluateExpression("-4+10"), "6");
 });
@@ -47,6 +50,16 @@ test("pressCalculatorKey builds expressions and stores bounded history", () => {
 
   assert.equal(state.display, "38");
   assert.deepEqual(state.history.slice(0, 2), ["19*2 = 38", "12+7 = 19"]);
+});
+
+test("pressCalculatorKey squares an evaluated result", () => {
+  let state = createDefaultState();
+  for (const key of ["3", "+", "2", "equals", "square", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+
+  assert.equal(state.display, "25");
+  assert.deepEqual(state.history.slice(0, 2), ["5^2 = 25", "3+2 = 5"]);
 });
 
 test("parseStoredHistory returns only string history entries", () => {

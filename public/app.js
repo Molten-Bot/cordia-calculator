@@ -176,12 +176,12 @@ function closeOpenParentheses(expression) {
     return expression + ")".repeat(Math.max(0, leftCount - rightCount));
 }
 function precedence(operator) {
-    if (operator === "neg")
-        return 5;
     if (operator === "%")
         return 4;
     if (operator === "^")
         return 3;
+    if (operator === "neg")
+        return 2.5;
     if (operator === "*" || operator === "/")
         return 2;
     if (operator === "+" || operator === "-")
@@ -230,7 +230,7 @@ function toReversePolish(tokens) {
         const unaryMinus = token.value === "-" &&
             (!previous || previous.type === "operator" || previous.type === "leftParen" || previous.type === "function");
         const current = { ...token, value: unaryMinus ? "neg" : token.value };
-        while (operators.length > 0) {
+        while (current.value !== "neg" && operators.length > 0) {
             const top = operators.at(-1);
             if (!top || top.type === "leftParen")
                 break;
@@ -326,7 +326,8 @@ export function evaluateExpression(expression) {
     return formatNumber(evaluateRpn(toReversePolish(tokens)));
 }
 function appendToken(state, token) {
-    const currentExpression = state.justEvaluated && !isOperator(token) ? "" : state.expression;
+    const continuesEvaluatedResult = isOperator(token) || token === "^2" || token === "%";
+    const currentExpression = state.justEvaluated && !continuesEvaluatedResult ? "" : state.expression;
     const expression = currentExpression + token;
     return {
         ...state,
