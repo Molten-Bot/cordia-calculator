@@ -94,6 +94,18 @@ test("pressCalculatorKey applies calculator-style percentages", () => {
     state = pressCalculatorKey(state, key);
   }
   assert.equal(state.display, "20");
+
+  state = createDefaultState();
+  for (const key of ["2", "0", "0", "+", "(", "1", "0", ")", "%", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+  assert.equal(state.display, "220");
+
+  state = createDefaultState();
+  for (const key of ["(", "1", "0", ")", "%", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+  assert.equal(state.display, "0.1");
 });
 
 test("parseStoredHistory returns only string history entries", () => {
