@@ -113,6 +113,10 @@ function lastChar(expression: string): string {
   return expression.at(-1) ?? "";
 }
 
+function isExpressionBoundary(char: string): boolean {
+  return isOperator(char) || char === "(" || char === ")";
+}
+
 function normalizeExpression(expression: string): string {
   return expression.replaceAll("×", "*").replaceAll("÷", "/").replaceAll("−", "-").trim();
 }
@@ -230,6 +234,114 @@ function closeOpenParentheses(expression: string): string {
   const leftCount = [...expression].filter((char) => char === "(").length;
   const rightCount = [...expression].filter((char) => char === ")").length;
   return expression + ")".repeat(Math.max(0, leftCount - rightCount));
+}
+
+function findCurrentOperandStart(expression: string): number {
+  let depth = 0;
+
+  for (let index = expression.length - 1; index >= 0; index -= 1) {
+    const char = expression[index] ?? "";
+
+    if (char === ")") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "(") {
+      if (depth === 0) return index + 1;
+      depth -= 1;
+      continue;
+    }
+
+    if (depth === 0 && isOperator(char)) {
+      const previous = expression[index - 1] ?? "";
+      const isUnaryMinus = char === "-" && (index === 0 || isOperator(previous) || previous === "(");
+      if (!isUnaryMinus) return index + 1;
+    }
+  }
+
+  return 0;
+}
+
+function findPreviousTopLevelOperator(expression: string, beforeIndex: number): number {
+  let depth = 0;
+
+  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+    const char = expression[index] ?? "";
+
+    if (char === ")") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "(") {
+      depth -= 1;
+      continue;
+    }
+
+    if (depth === 0 && isOperator(char)) {
+      const previous = expression[index - 1] ?? "";
+      const isUnaryMinus = char === "-" && (index === 0 || isOperator(previous) || previous === "(");
+      if (!isUnaryMinus) return index;
+    }
+  }
+
+  return -1;
+}
+
+function appendDecimal(state: CalculatorState): CalculatorState {
+  const expression = state.justEvaluated ? "" : state.expression;
+  const operandStart = findCurrentOperandStart(expression);
+  const currentOperand = expression.slice(operandStart);
+
+  if (currentOperand.includes(".")) return state;
+
+  const needsLeadingZero = expression === "" || isExpressionBoundary(lastChar(expression));
+  return appendToken({ ...state, expression }, needsLeadingZero ? "0." : ".");
+}
+
+function toggleCurrentOperandSign(state: CalculatorState): CalculatorState {
+  const expression = state.expression || state.display;
+  if (expression === "0" || expression === "") return state;
+
+  const operandStart = findCurrentOperandStart(expression);
+  const currentOperand = expression.slice(operandStart);
+  if (currentOperand === "") return state;
+
+  let nextExpression: string;
+  if (currentOperand.startsWith("(-") && currentOperand.endsWith(")")) {
+    nextExpression = expression.slice(0, operandStart) + currentOperand.slice(2, -1);
+  } else if (expression[operandStart] === "-") {
+    nextExpression = expression.slice(0, operandStart) + currentOperand.slice(1);
+  } else if (operandStart === 0) {
+    nextExpression = `-${expression}`;
+  } else {
+    nextExpression = `${expression.slice(0, operandStart)}(-${currentOperand})`;
+  }
+
+  return { ...state, expression: nextExpression, display: nextExpression, justEvaluated: false, error: null };
+}
+
+function applyPercent(state: CalculatorState): CalculatorState {
+  const expression = state.expression || state.display;
+  if (expression === "" || isExpressionBoundary(lastChar(expression))) return state;
+
+  const operandStart = findCurrentOperandStart(expression);
+  const currentOperand = expression.slice(operandStart);
+  const operatorIndex = findPreviousTopLevelOperator(expression, operandStart);
+  const operator = expression[operatorIndex] ?? "";
+
+  try {
+    const currentValue = Number(evaluateExpression(currentOperand));
+    const percentValue =
+      (operator === "+" || operator === "-") && operatorIndex > 0
+        ? (Number(evaluateExpression(expression.slice(0, operatorIndex))) * currentValue) / 100
+        : currentValue / 100;
+    const nextExpression = expression.slice(0, operandStart) + formatNumber(percentValue);
+    return { ...state, expression: nextExpression, display: nextExpression, justEvaluated: false, error: null };
+  } catch {
+    return appendToken(state, "%");
+  }
 }
 
 function precedence(operator: string): number {
@@ -427,18 +539,16 @@ export function pressCalculatorKey(state: CalculatorState, key: string): Calcula
     }
   }
 
-  if (key === "sign") {
-    const base = state.expression || state.display;
-    const expression = base.startsWith("-") ? base.slice(1) : `-${base}`;
-    return { ...state, expression, display: expression, justEvaluated: false, error: null };
-  }
+  if (key === "sign") return toggleCurrentOperandSign(state);
 
   if (key === "square") return appendToken(state, "^2");
   if (key === "sqrt") return appendToken(state, "sqrt(");
   if (key === "pi") return appendToken(state, "π");
   if (key === "answer") return appendToken(state, state.history[0]?.split(" = ")[1] ?? "0");
+  if (key === ".") return appendDecimal(state);
+  if (key === "%") return applyPercent(state);
 
-  if (isDigit(key) || [".", "+", "-", "*", "/", "^", "%", "(", ")"].includes(key)) {
+  if (isDigit(key) || ["+", "-", "*", "/", "^", "(", ")"].includes(key)) {
     if (isOperator(key) && isOperator(lastChar(state.expression))) {
       const expression = state.expression.slice(0, -1) + key;
       return { ...state, expression, display: expression, justEvaluated: false, error: null };
