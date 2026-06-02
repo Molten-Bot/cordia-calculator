@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "generatedBy": "cordia",
+  "updatedAt": "2026-06-02T19:15:52.893Z",
+  "project": {
+    "id": "calculator",
+    "handle": "calculator",
+    "title": "Calculator",
+    "summary": "A simple calculator, for anyone to use. Browser functional calculator with all math enabled, and functions correctly.",
+    "url": "https://cordia.molten.bot/project/calculator"
+  },
+  "repo": {
+    "owner": "Molten-Bot",
+    "name": "cordia-calculator",
+    "fullName": "Molten-Bot/cordia-calculator"
+  }
+}
