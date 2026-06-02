@@ -62,6 +62,40 @@ test("pressCalculatorKey squares an evaluated result", () => {
   assert.deepEqual(state.history.slice(0, 2), ["5^2 = 25", "3+2 = 5"]);
 });
 
+test("pressCalculatorKey toggles the current operand sign", () => {
+  let state = createDefaultState();
+  for (const key of ["5", "+", "3", "sign", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+
+  assert.equal(state.display, "2");
+  assert.equal(state.history[0], "5+(-3) = 2");
+});
+
+test("pressCalculatorKey handles decimal entry ergonomically", () => {
+  let state = createDefaultState();
+  for (const key of [".", "5", ".", "+", ".", "2", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+
+  assert.equal(state.display, "0.7");
+  assert.equal(state.history[0], "0.5+0.2 = 0.7");
+});
+
+test("pressCalculatorKey applies calculator-style percentages", () => {
+  let state = createDefaultState();
+  for (const key of ["2", "0", "0", "+", "1", "0", "%", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+  assert.equal(state.display, "220");
+
+  state = createDefaultState();
+  for (const key of ["2", "0", "0", "*", "1", "0", "%", "equals"]) {
+    state = pressCalculatorKey(state, key);
+  }
+  assert.equal(state.display, "20");
+});
+
 test("parseStoredHistory returns only string history entries", () => {
   assert.deepEqual(parseStoredHistory(JSON.stringify(["1+1 = 2", 42, null])), ["1+1 = 2"]);
   assert.deepEqual(parseStoredHistory("{"), []);
